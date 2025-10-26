@@ -1,0 +1,16 @@
+#!/bin/bash
+set -o errexit
+set -o errtrace
+set -o pipefail
+set -o nounset
+
+
+problem_list=${AUTOPKGTEST_TMP}/problems.txt
+debian/tests/write-problems.sh ${problem_list} test/jaxp/ProblemList.txt jaxp
+
+debian/tests/jtreg-autopkgtest.sh jaxp \
+    -exclude:test/jaxp/ProblemList.txt \
+    -dir:test/jaxp \
+     -k:!stress \
+    :tier1 :tier2
+debian/tests/jtdiff-autopkgtest.sh jaxp

@@ -1,0 +1,60 @@
+name: 'Build debian package'
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  amd:
+    name: 'Build for x64'
+    runs-on: ubuntu-22.04
+    container: debian:sid
+
+    steps:
+      - name: 'Install dep'
+        run: |
+          apt-get update
+          apt-get install build-essential dpkg-dev pkg-config -y
+
+      - name: 'Checkout the scripts'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+
+      - name: 'Install dep stage 2'
+        run: |
+          apt build-dep . -y
+
+      - name: 'Build'
+        run: |
+          DEB_BUILD_OPTIONS="parallel=2" dpkg-buildpackage -b -us -uc -d
+
+  aarch:
+    name: 'Build for arm64'
+    runs-on: ubuntu-22.04-arm
+    container: debian:sid
+
+    steps:
+      - name: 'Install dep'
+        run: |
+          apt-get update
+          apt-get install build-essential dpkg-dev pkg-config -y
+
+      - name: 'Checkout the scripts'
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+
+      - name: 'Install dep stage 2'
+        run: |
+          apt build-dep . -y
+
+      - name: 'Build'
+        run: |
+          DEB_BUILD_OPTIONS="parallel=2" dpkg-buildpackage -b -us -uc -d
+
+
