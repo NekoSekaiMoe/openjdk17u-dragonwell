@@ -55,6 +55,6 @@ jobs:
 
       - name: 'Build'
         run: |
-          DEB_BUILD_OPTIONS="parallel=2" dpkg-buildpackage -b -us -uc -d
+          DEB_BUILD_OPTIONS="parallel=4" dpkg-buildpackage -b -us -uc -d
 
 

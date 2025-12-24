@@ -3,6 +3,7 @@
 
 # Uncomment this to turn on verbose mode.
 export DH_VERBOSE=0
+export V=0
 include /usr/share/dpkg/buildflags.mk
 
 unexport LANG LC_ALL
@@ -367,7 +368,8 @@ endif
 
 ifeq (,$(filter $(DEB_BUILD_OPTIONS), terse))
   #EXTRA_BUILD_ENV += MAKE_VERBOSE=y QUIETLY= LOG=debug
-  EXTRA_BUILD_ENV += MAKE_VERBOSE=n QUIETLY= LOG=info,cmdlines
+  EXTRA_BUILD_ENV += MAKE_VERBOSE=n QUIETLY= LOG=warn
+  #EXTRA_BUILD_ENV += MAKE_VERBOSE=n QUIETLY= LOG=info,cmdlines
 endif
 
 # timestamp skew on kFreeBSD
