@@ -2473,7 +2473,6 @@ public final class System {
                 Shutdown.exit(statusCode);
             }
 
-<<<<<<< HEAD
             @Override
             public Thread currentThread0() {
                 return Thread.currentThread0();
