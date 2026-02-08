@@ -155,6 +155,9 @@ public class AquaKeyBindings {
                         "shift alt KP_LEFT", null,
                         "shift alt RIGHT", null,
                         "shift alt KP_RIGHT", null,
+                        "alt BACK_SPACE", null,
+                        "ctrl W", null,
+                        "alt DELETE", null,
                 }));
     }
 
@@ -220,6 +223,10 @@ public class AquaKeyBindings {
             "KP_UP", "aquaSelectPrevious",
             "DOWN", "aquaSelectNext",
             "KP_DOWN", "aquaSelectNext",
+            "alt DOWN", "aquaOpenPopupOrhighlightLast",
+            "alt KP_DOWN", "aquaOpenPopupOrhighlightLast",
+            "alt UP", "aquaOpenPopupOrhighlightFirst",
+            "alt KP_UP", "aquaOpenPopupOrhighlightFirst",
             "SPACE", "aquaSpacePressed" // "spacePopup"
         }));
     }
@@ -379,7 +386,8 @@ public class AquaKeyBindings {
             "ENTER", "selectNextRowCell",
             "shift ENTER", "selectPreviousRowCell",
             "alt TAB", "focusHeader",
-            "alt shift TAB", "focusHeader"
+            "alt shift TAB", "focusHeader",
+            "F8", "focusHeader"
         }));
     }
 

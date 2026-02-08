@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -28,7 +28,6 @@
 #include "code/codeCache.hpp"
 #include "code/compiledIC.hpp"
 #include "gc/shared/collectedHeap.hpp"
-#include "memory/resourceArea.hpp"
 #include "nativeInst_aarch64.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/handles.hpp"
@@ -38,6 +37,9 @@
 #include "utilities/ostream.hpp"
 #ifdef COMPILER1
 #include "c1/c1_Runtime1.hpp"
+#endif
+#if INCLUDE_JVMCI
+#include "jvmci/jvmciEnv.hpp"
 #endif
 
 void NativeCall::verify() {
@@ -156,13 +158,18 @@ void NativeGotJump::verify() const {
 }
 
 address NativeCall::destination() const {
-  address addr = (address)this;
-  address destination = instruction_address() + displacement();
+  address addr = instruction_address();
+  address destination = addr + displacement();
+
+  // Performance optimization: no need to call find_blob() if it is a self-call
+  if (destination == addr) {
+    return destination;
+  }
 
   // Do we use a trampoline stub for this call?
   CodeBlob* cb = CodeCache::find_blob_unsafe(addr);   // Else we get assertion if nmethod is zombie.
-  assert(cb && cb->is_nmethod(), "sanity");
-  nmethod *nm = (nmethod *)cb;
+  assert(cb != nullptr && cb->is_nmethod(), "nmethod expected");
+  nmethod *nm = cb->as_nmethod();
   if (nm->stub_contains(destination) && is_NativeCallTrampolineStub_at(destination)) {
     // Yes we do, so get the destination from the trampoline stub.
     const address trampoline_stub_addr = destination;
@@ -177,17 +184,11 @@ address NativeCall::destination() const {
 // call instruction at all times.
 //
 // Used in the runtime linkage of calls; see class CompiledIC.
-//
-// Add parameter assert_lock to switch off assertion
-// during code generation, where no patching lock is needed.
-void NativeCall::set_destination_mt_safe(address dest, bool assert_lock) {
-  assert(!assert_lock ||
-         (Patching_lock->is_locked() || SafepointSynchronize::is_at_safepoint()) ||
+void NativeCall::set_destination_mt_safe(address dest) {
+  assert((Patching_lock->is_locked() || SafepointSynchronize::is_at_safepoint()) ||
          CompiledICLocker::is_safe(addr_at(0)),
          "concurrent code patching");
 
-  ResourceMark rm;
-  int code_size = NativeInstruction::instruction_size;
   address addr_call = addr_at(0);
   bool reachable = Assembler::reachable_from_branch_at(addr_call, dest);
   assert(NativeCall::is_call_at(addr_call), "unexpected code at call site");
@@ -211,22 +212,18 @@ void NativeCall::set_destination_mt_safe(address dest, bool assert_lock) {
 }
 
 address NativeCall::get_trampoline() {
-  address call_addr = addr_at(0);
+  address call_addr = instruction_address();
 
   CodeBlob *code = CodeCache::find_blob(call_addr);
-  assert(code != NULL, "Could not find the containing code blob");
+  assert(code != nullptr && code->is_nmethod(), "nmethod expected");
+  nmethod* nm = code->as_nmethod();
 
-  address bl_destination
-    = MacroAssembler::pd_call_destination(call_addr);
-  if (code->contains(bl_destination) &&
+  address bl_destination = call_addr + displacement();
+  if (nm->stub_contains(bl_destination) &&
       is_NativeCallTrampolineStub_at(bl_destination))
     return bl_destination;
 
-  if (code->is_nmethod()) {
-    return trampoline_stub_Relocation::get_trampoline_for(call_addr, (nmethod*)code);
-  }
-
-  return NULL;
+  return trampoline_stub_Relocation::get_trampoline_for(call_addr, nm);
 }
 
 // Inserts a native call instruction at a given pc
@@ -524,23 +521,26 @@ void NativeCallTrampolineStub::set_destination(address new_destination) {
   OrderAccess::release();
 }
 
+#if INCLUDE_JVMCI
 // Generate a trampoline for a branch to dest.  If there's no need for a
 // trampoline, simply patch the call directly to dest.
-address NativeCall::trampoline_jump(CodeBuffer &cbuf, address dest) {
+void NativeCall::trampoline_jump(CodeBuffer &cbuf, address dest, JVMCI_TRAPS) {
   MacroAssembler a(&cbuf);
-  address stub = NULL;
 
-  if (a.far_branches()
-      && ! is_NativeCallTrampolineStub_at(instruction_address() + displacement())) {
-    stub = a.emit_trampoline_stub(instruction_address() - cbuf.insts()->start(), dest);
-  }
-
-  if (stub == NULL) {
-    // If we generated no stub, patch this call directly to dest.
-    // This will happen if we don't need far branches or if there
-    // already was a trampoline.
+  if (!a.far_branches()) {
+    // If not using far branches, patch this call directly to dest.
     set_destination(dest);
+  } else if (!is_NativeCallTrampolineStub_at(instruction_address() + displacement())) {
+    // If we want far branches and there isn't a trampoline stub, emit one.
+    address stub = a.emit_trampoline_stub(instruction_address() - cbuf.insts()->start(), dest);
+    if (stub == nullptr) {
+      JVMCI_ERROR("could not emit trampoline stub - code cache is full");
+    }
+    // The relocation created while emitting the stub will ensure this
+    // call instruction is subsequently patched to call the stub.
+  } else {
+    // Not sure how this can be happen but be defensive
+    JVMCI_ERROR("single-use stub should not exist");
   }
-
-  return stub;
 }
+#endif

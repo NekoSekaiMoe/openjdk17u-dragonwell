@@ -48,7 +48,6 @@ import java.util.Set;
 import java.util.Vector;
 import sun.font.CompositeFontDescriptor;
 import sun.font.SunFontManager;
-import sun.font.FontManagerFactory;
 import sun.font.FontUtilities;
 import sun.util.logging.PlatformLogger;
 
@@ -204,14 +203,12 @@ public abstract class FontConfiguration {
         getInstalledFallbackFonts(javaLib);
 
         if (f != null) {
-            try {
-                FileInputStream in = new FileInputStream(f.getPath());
+            try (FileInputStream in = new FileInputStream(f.getPath())) {
                 if (isProperties) {
                     loadProperties(in);
                 } else {
                     loadBinary(in);
                 }
-                in.close();
                 if (FontUtilities.debugFonts()) {
                     logger.config("Read logical font configuration from " + f);
                 }
@@ -1252,15 +1249,24 @@ public abstract class FontConfiguration {
         return filenamesMap.get(platformName);
     }
 
+    private static final String fontconfigErrorMessage =
+            "Fontconfig head is null, check your fonts or fonts configuration";
+
     /**
      * Returns a configuration specific path to be appended to the font
      * search path.
      */
     public String getExtraFontPath() {
+        if (head == null) {
+            throw new RuntimeException(fontconfigErrorMessage);
+        }
         return getString(head[INDEX_appendedfontpath]);
     }
 
     public String getVersion() {
+        if (head == null) {
+            throw new RuntimeException(fontconfigErrorMessage);
+        }
         return getString(head[INDEX_version]);
     }
 

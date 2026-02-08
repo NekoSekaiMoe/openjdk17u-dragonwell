@@ -56,8 +56,7 @@ class ICStub: public Stub {
  protected:
   friend class ICStubInterface;
   // This will be called only by ICStubInterface
-  void    initialize(int size,
-                     CodeStrings strings)        { _size = size; _ic_site = NULL; }
+  void    initialize(int size)                   { _size = size; _ic_site = NULL; }
   void    finalize(); // called when a method is removed
 
   // General info
@@ -165,6 +164,7 @@ class InlineCacheBuffer: public AllStatic {
   static bool contains(address instruction_address);
 
     // removes the ICStubs after backpatching
+  static bool needs_update_inline_caches();
   static void update_inline_caches();
   static void refill_ic_stubs();
 

@@ -109,8 +109,7 @@ Stub* StubQueue::stub_containing(address pc) const {
 
 Stub* StubQueue::request_committed(int code_size) {
   Stub* s = request(code_size);
-  CodeStrings strings;
-  if (s != NULL) commit(code_size, strings);
+  if (s != NULL) commit(code_size);
   return s;
 }
 
@@ -127,8 +126,7 @@ Stub* StubQueue::request(int requested_code_size) {
       assert(_buffer_limit == _buffer_size, "buffer must be fully usable");
       if (_queue_end + requested_size <= _buffer_size) {
         // code fits in at the end => nothing to do
-        CodeStrings strings;
-        stub_initialize(s, requested_size, strings);
+        stub_initialize(s, requested_size);
         return s;
       } else {
         // stub doesn't fit in at the queue end
@@ -145,8 +143,7 @@ Stub* StubQueue::request(int requested_code_size) {
     // Queue: |XXX|.......|XXXXXXX|.......|
     //        ^0  ^end    ^begin  ^limit  ^size
     s = current_stub();
-    CodeStrings strings;
-    stub_initialize(s, requested_size, strings);
+    stub_initialize(s, requested_size);
     return s;
   }
   // Not enough space left
@@ -155,12 +152,12 @@ Stub* StubQueue::request(int requested_code_size) {
 }
 
 
-void StubQueue::commit(int committed_code_size, CodeStrings& strings) {
+void StubQueue::commit(int committed_code_size) {
   assert(committed_code_size > 0, "committed_code_size must be > 0");
   int committed_size = align_up(stub_code_size_to_size(committed_code_size), CodeEntryAlignment);
   Stub* s = current_stub();
   assert(committed_size <= stub_size(s), "committed size must not exceed requested size");
-  stub_initialize(s, committed_size, strings);
+  stub_initialize(s, committed_size);
   _queue_end += committed_size;
   _number_of_stubs++;
   if (_mutex != NULL) _mutex->unlock();
@@ -214,8 +211,6 @@ void StubQueue::verify() {
   guarantee(0 <= _queue_begin  && _queue_begin  <  _buffer_limit, "_queue_begin out of bounds");
   guarantee(0 <= _queue_end    && _queue_end    <= _buffer_limit, "_queue_end   out of bounds");
   // verify alignment
-  guarantee(_buffer_size  % CodeEntryAlignment == 0, "_buffer_size  not aligned");
-  guarantee(_buffer_limit % CodeEntryAlignment == 0, "_buffer_limit not aligned");
   guarantee(_queue_begin  % CodeEntryAlignment == 0, "_queue_begin  not aligned");
   guarantee(_queue_end    % CodeEntryAlignment == 0, "_queue_end    not aligned");
   // verify buffer limit/size relationship

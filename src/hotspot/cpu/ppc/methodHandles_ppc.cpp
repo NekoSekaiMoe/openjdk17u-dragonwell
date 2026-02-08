@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2021 SAP SE. All rights reserved.
+ * Copyright (c) 2012, 2022 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -300,7 +300,7 @@ address MethodHandles::generate_method_handle_interpreter_entry(MacroAssembler* 
     }
     Register R19_member = R19_method;  // MemberName ptr; incoming method ptr is dead now
     __ ld(R19_member, RegisterOrConstant((intptr_t)8), R15_argbase);
-    __ add(R15_argbase, Interpreter::stackElementSize, R15_argbase);
+    __ addi(R15_argbase, R15_argbase, Interpreter::stackElementSize);
     generate_method_handle_dispatch(_masm, iid, tmp_recv, R19_member, not_for_compiler_entry);
   }
 
@@ -348,7 +348,9 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
         ? -1                                  // enforce receiver null check
         : oopDesc::klass_offset_in_bytes();   // regular null-checking behavior
 
-      __ null_check_throw(receiver_reg, klass_offset, temp1, Interpreter::throw_NullPointerException_entry());
+      address NullPointerException_entry = for_compiler_entry ? StubRoutines::throw_NullPointerException_at_call_entry()
+                                                              : Interpreter::throw_NullPointerException_entry();
+      __ null_check_throw(receiver_reg, klass_offset, temp1, NullPointerException_entry);
 
       if (iid != vmIntrinsics::_linkToSpecial || VerifyMethodHandles) {
         __ load_klass(temp1_recv_klass, receiver_reg);

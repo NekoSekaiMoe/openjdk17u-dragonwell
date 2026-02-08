@@ -448,4 +448,5 @@ public interface JavaLangAccess {
      * Get the reference to the thread's inherited {@code ResourceContainer}
      */
     AbstractResourceContainer getInheritedResourceContainer(Thread thread);
+    String getLoaderNameID(ClassLoader loader);
 }

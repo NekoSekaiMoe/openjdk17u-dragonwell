@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,6 +22,7 @@
  */
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import jdk.jpackage.test.TKit;
 import jdk.jpackage.test.PackageTest;
@@ -37,14 +38,13 @@ import jdk.jpackage.test.Executor;
 /*
  * @test
  * @summary Custom l10n of msi installers in jpackage
- * @library ../helpers
+ * @library /test/jdk/tools/jpackage/helpers
  * @key jpackagePlatformPackage
  * @requires (jpackage.test.SQETest == null)
  * @build jdk.jpackage.test.*
  * @requires (os.family == "windows")
- * @modules jdk.jpackage/jdk.jpackage.internal
  * @compile WinL10nTest.java
- * @run main/othervm/timeout=360 -Xmx512m jdk.jpackage.test.Main
+ * @run main/othervm/timeout=1440 -Xmx512m jdk.jpackage.test.Main
  *  --jpt-run=WinL10nTest
  */
 
@@ -94,8 +94,11 @@ public class WinL10nTest {
 
     private final static Stream<String> getLightCommandLine(
             Executor.Result result) {
-        return result.getOutput().stream()
-                .filter(s -> s.trim().startsWith("light.exe"));
+        return result.getOutput().stream().filter(s -> {
+            s = s.trim();
+            return s.startsWith("light.exe") || ((s.contains("\\light.exe ")
+                    && s.contains(" -out ")));
+        });
     }
 
     @Test

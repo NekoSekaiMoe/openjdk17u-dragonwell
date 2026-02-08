@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014, 2021, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2013, 2021 SAP SE. All rights reserved.
+ * Copyright (c) 2013, 2022 SAP SE. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -146,7 +146,9 @@ void TemplateTable::patch_bytecode(Bytecodes::Code new_bc, Register Rnew_bc, Reg
     __ bind(L_fast_patch);
   }
 
-  // Patch bytecode.
+  // Patch bytecode with release store to coordinate with ConstantPoolCacheEntry
+  // loads in fast bytecode codelets.
+  __ release();
   __ stb(Rnew_bc, 0, R14_bcp);
 
   __ bind(L_patch_done);
@@ -237,7 +239,7 @@ void TemplateTable::sipush() {
   __ get_2_byte_integer_at_bcp(1, R17_tos, InterpreterMacroAssembler::Signed);
 }
 
-void TemplateTable::ldc(bool wide) {
+void TemplateTable::ldc(LdcType type) {
   Register Rscratch1 = R11_scratch1,
            Rscratch2 = R12_scratch2,
            Rcpool    = R3_ARG1;
@@ -246,7 +248,7 @@ void TemplateTable::ldc(bool wide) {
   Label notInt, notFloat, notClass, exit;
 
   __ get_cpool_and_tags(Rcpool, Rscratch2); // Set Rscratch2 = &tags.
-  if (wide) { // Read index.
+  if (is_ldc_wide(type)) { // Read index.
     __ get_2_byte_integer_at_bcp(1, Rscratch1, InterpreterMacroAssembler::Unsigned);
   } else {
     __ lbz(Rscratch1, 1, R14_bcp);
@@ -268,7 +270,7 @@ void TemplateTable::ldc(bool wide) {
   __ crnor(CCR0, Assembler::equal, CCR1, Assembler::equal); // Neither resolved class nor unresolved case from above?
   __ beq(CCR0, notClass);
 
-  __ li(R4, wide ? 1 : 0);
+  __ li(R4, is_ldc_wide(type) ? 1 : 0);
   call_VM(R17_tos, CAST_FROM_FN_PTR(address, InterpreterRuntime::ldc), R4);
   __ push(atos);
   __ b(exit);
@@ -301,15 +303,16 @@ void TemplateTable::ldc(bool wide) {
 }
 
 // Fast path for caching oop constants.
-void TemplateTable::fast_aldc(bool wide) {
+void TemplateTable::fast_aldc(LdcType type) {
   transition(vtos, atos);
 
-  int index_size = wide ? sizeof(u2) : sizeof(u1);
+  int index_size = is_ldc_wide(type) ? sizeof(u2) : sizeof(u1);
   Label is_null;
 
   // We are resolved if the resolved reference cache entry contains a
   // non-null object (CallSite, etc.)
   __ get_cache_index_at_bcp(R31, 1, index_size);  // Load index.
+  // Only rewritten during link time. So, no need for memory barriers for accessing resolved info.
   __ load_resolved_reference_at_index(R17_tos, R31, R11_scratch1, R12_scratch2, &is_null);
 
   // Convert null sentinel to NULL
@@ -1040,7 +1043,7 @@ void TemplateTable::bastore() {
 
   // Need to check whether array is boolean or byte
   // since both types share the bastore bytecode.
-  __ load_klass(Rscratch, Rarray);
+  __ load_klass_check_null_throw(Rscratch, Rarray, Rscratch);
   __ lwz(Rscratch, in_bytes(Klass::layout_helper_offset()), Rscratch);
   int diffbit = exact_log2(Klass::layout_helper_boolean_diffbit());
   __ testbitdi(CCR0, R0, Rscratch, diffbit);
@@ -2309,7 +2312,7 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
   if (is_invokevfinal) {
     assert(Ritable_index == noreg, "register not used");
     // Already resolved.
-    __ get_cache_and_index_at_bcp(Rcache, 1);
+    __ get_cache_and_index_at_bcp(Rcache, 1, sizeof(u2), /* for_fast_bytecode */ true);
   } else {
     resolve_cache_and_index(byte_no, Rcache, /* temp */ Rmethod, is_invokedynamic ? sizeof(u4) : sizeof(u2));
   }
@@ -3016,7 +3019,7 @@ void TemplateTable::fast_storefield(TosState state) {
   const ConditionRegister CR_is_vol = CCR2; // Non-volatile condition register (survives runtime call in do_oop_store).
 
   // Constant pool already resolved => Load flags and offset of field.
-  __ get_cache_and_index_at_bcp(Rcache, 1);
+  __ get_cache_and_index_at_bcp(Rcache, 1, sizeof(u2), /* for_fast_bytecode */ true);
   jvmti_post_field_mod(Rcache, Rscratch, false /* not static */);
   load_field_cp_cache_entry(noreg, Rcache, noreg, Roffset, Rflags, false); // Uses R11, R12
 
@@ -3097,7 +3100,7 @@ void TemplateTable::fast_accessfield(TosState state) {
                  // R12_scratch2 used by load_field_cp_cache_entry
 
   // Constant pool already resolved. Get the field offset.
-  __ get_cache_and_index_at_bcp(Rcache, 1);
+  __ get_cache_and_index_at_bcp(Rcache, 1, sizeof(u2), /* for_fast_bytecode */ true);
   load_field_cp_cache_entry(noreg, Rcache, noreg, Roffset, Rflags, false); // Uses R11, R12
 
   // JVMTI support
@@ -3236,7 +3239,7 @@ void TemplateTable::fast_xaccess(TosState state) {
   __ ld(Rclass_or_obj, 0, R18_locals);
 
   // Constant pool already resolved. Get the field offset.
-  __ get_cache_and_index_at_bcp(Rcache, 2);
+  __ get_cache_and_index_at_bcp(Rcache, 2, sizeof(u2), /* for_fast_bytecode */ true);
   load_field_cp_cache_entry(noreg, Rcache, noreg, Roffset, Rflags, false); // Uses R11, R12
 
   // JVMTI support not needed, since we switch back to single bytecode as soon as debugger attaches.
@@ -3440,8 +3443,7 @@ void TemplateTable::invokevirtual(int byte_no) {
   __ load_dispatch_table(Rtable_addr, Interpreter::invoke_return_entry_table());
   __ sldi(Rret_type, Rret_type, LogBytesPerWord);
   __ ldx(Rret_addr, Rret_type, Rtable_addr);
-  __ null_check_throw(Rrecv, oopDesc::klass_offset_in_bytes(), R11_scratch1);
-  __ load_klass(Rrecv_klass, Rrecv);
+  __ load_klass_check_null_throw(Rrecv_klass, Rrecv, R11_scratch1);
   __ verify_klass_ptr(Rrecv_klass);
   __ profile_virtual_call(Rrecv_klass, R11_scratch1, R12_scratch2, false);
 
@@ -3578,8 +3580,7 @@ void TemplateTable::invokeinterface(int byte_no) {
   // then regular interface method.
 
   // Get receiver klass - this is also a null check
-  __ null_check_throw(Rreceiver, oopDesc::klass_offset_in_bytes(), Rscratch2);
-  __ load_klass(Rrecv_klass, Rreceiver);
+  __ load_klass_check_null_throw(Rrecv_klass, Rreceiver, Rscratch2);
 
   // Check corner case object method.
   // Special case of invokeinterface called for virtual method of
@@ -4045,90 +4046,78 @@ void TemplateTable::athrow() {
 // at next monitor exit.
 void TemplateTable::monitorenter() {
   transition(atos, vtos);
-
   __ verify_oop(R17_tos);
 
-  Register Rcurrent_monitor  = R11_scratch1,
-           Rcurrent_obj      = R12_scratch2,
+  Register Rcurrent_monitor  = R3_ARG1,
+           Rcurrent_obj      = R4_ARG2,
            Robj_to_lock      = R17_tos,
-           Rscratch1         = R3_ARG1,
-           Rscratch2         = R4_ARG2,
-           Rscratch3         = R5_ARG3,
-           Rcurrent_obj_addr = R6_ARG4;
+           Rscratch1         = R11_scratch1,
+           Rscratch2         = R12_scratch2,
+           Rbot              = R5_ARG3,
+           Rfree_slot        = R6_ARG4;
+
+  Label Lfound, Lallocate_new;
+
+  __ ld(Rscratch1, _abi0(callers_sp), R1_SP); // load FP
+  __ li(Rfree_slot, 0); // Points to free slot or null.
+
+  // Set up search loop - start with topmost monitor.
+  __ mr(Rcurrent_monitor, R26_monitor);
+  __ addi(Rbot, Rscratch1, -frame::ijava_state_size);
 
   // ------------------------------------------------------------------------------
   // Null pointer exception.
-  __ null_check_throw(Robj_to_lock, -1, R11_scratch1);
+  __ null_check_throw(Robj_to_lock, -1, Rscratch1);
 
-  // Try to acquire a lock on the object.
-  // Repeat until succeeded (i.e., until monitorenter returns true).
+  // Check if any slot is present => short cut to allocation if not.
+  __ cmpld(CCR0, Rcurrent_monitor, Rbot);
+  __ beq(CCR0, Lallocate_new);
 
   // ------------------------------------------------------------------------------
   // Find a free slot in the monitor block.
-  Label Lfound, Lexit, Lallocate_new;
-  ConditionRegister found_free_slot = CCR0,
-                    found_same_obj  = CCR1,
-                    reached_limit   = CCR6;
+  // Note: The order of the monitors is important for C2 OSR which derives the
+  //       unlock order from it (see comments for interpreter_frame_monitor_*).
   {
-    Label Lloop;
-    Register Rlimit = Rcurrent_monitor;
+    Label Lloop, LnotFree, Lexit;
 
-    // Set up search loop - start with topmost monitor.
-    __ add(Rcurrent_obj_addr, BasicObjectLock::obj_offset_in_bytes(), R26_monitor);
-
-    __ ld(Rlimit, 0, R1_SP);
-    __ addi(Rlimit, Rlimit, - (frame::ijava_state_size + frame::interpreter_frame_monitor_size_in_bytes() - BasicObjectLock::obj_offset_in_bytes())); // Monitor base
-
-    // Check if any slot is present => short cut to allocation if not.
-    __ cmpld(reached_limit, Rcurrent_obj_addr, Rlimit);
-    __ bgt(reached_limit, Lallocate_new);
-
-    // Pre-load topmost slot.
-    __ ld(Rcurrent_obj, 0, Rcurrent_obj_addr);
-    __ addi(Rcurrent_obj_addr, Rcurrent_obj_addr, frame::interpreter_frame_monitor_size() * wordSize);
-    // The search loop.
     __ bind(Lloop);
-    // Found free slot?
-    __ cmpdi(found_free_slot, Rcurrent_obj, 0);
-    // Is this entry for same obj? If so, stop the search and take the found
-    // free slot or allocate a new one to enable recursive locking.
-    __ cmpd(found_same_obj, Rcurrent_obj, Robj_to_lock);
-    __ cmpld(reached_limit, Rcurrent_obj_addr, Rlimit);
-    __ beq(found_free_slot, Lexit);
-    __ beq(found_same_obj, Lallocate_new);
-    __ bgt(reached_limit, Lallocate_new);
-    // Check if last allocated BasicLockObj reached.
-    __ ld(Rcurrent_obj, 0, Rcurrent_obj_addr);
-    __ addi(Rcurrent_obj_addr, Rcurrent_obj_addr, frame::interpreter_frame_monitor_size() * wordSize);
-    // Next iteration if unchecked BasicObjectLocks exist on the stack.
-    __ b(Lloop);
+    __ ld(Rcurrent_obj, BasicObjectLock::obj_offset_in_bytes(), Rcurrent_monitor);
+    // Exit if current entry is for same object; this guarantees, that new monitor
+    // used for recursive lock is above the older one.
+    __ cmpd(CCR0, Rcurrent_obj, Robj_to_lock);
+    __ beq(CCR0, Lexit); // recursive locking
+
+    __ cmpdi(CCR0, Rcurrent_obj, 0);
+    __ bne(CCR0, LnotFree);
+    __ mr(Rfree_slot, Rcurrent_monitor); // remember free slot closest to the bottom
+    __ bind(LnotFree);
+
+    __ addi(Rcurrent_monitor, Rcurrent_monitor, frame::interpreter_frame_monitor_size_in_bytes());
+    __ cmpld(CCR0, Rcurrent_monitor, Rbot);
+    __ bne(CCR0, Lloop);
+    __ bind(Lexit);
   }
 
   // ------------------------------------------------------------------------------
   // Check if we found a free slot.
-  __ bind(Lexit);
-
-  __ addi(Rcurrent_monitor, Rcurrent_obj_addr, -(frame::interpreter_frame_monitor_size() * wordSize) - BasicObjectLock::obj_offset_in_bytes());
-  __ addi(Rcurrent_obj_addr, Rcurrent_obj_addr, - frame::interpreter_frame_monitor_size() * wordSize);
-  __ b(Lfound);
+  __ cmpdi(CCR0, Rfree_slot, 0);
+  __ bne(CCR0, Lfound);
 
   // We didn't find a free BasicObjLock => allocate one.
-  __ align(32, 12);
   __ bind(Lallocate_new);
   __ add_monitor_to_stack(false, Rscratch1, Rscratch2);
-  __ mr(Rcurrent_monitor, R26_monitor);
-  __ addi(Rcurrent_obj_addr, R26_monitor, BasicObjectLock::obj_offset_in_bytes());
+  __ mr(Rfree_slot, R26_monitor);
 
   // ------------------------------------------------------------------------------
   // We now have a slot to lock.
   __ bind(Lfound);
 
   // Increment bcp to point to the next bytecode, so exception handling for async. exceptions work correctly.
-  // The object has already been poped from the stack, so the expression stack looks correct.
+  // The object has already been popped from the stack, so the expression stack looks correct.
   __ addi(R14_bcp, R14_bcp, 1);
 
-  __ std(Robj_to_lock, 0, Rcurrent_obj_addr);
-  __ lock_object(Rcurrent_monitor, Robj_to_lock);
+  __ std(Robj_to_lock, BasicObjectLock::obj_offset_in_bytes(), Rfree_slot);
+  __ lock_object(Rfree_slot, Robj_to_lock);
 
   // Check if there's enough space on the stack for the monitors after locking.
   // This emits a single store.
@@ -4142,46 +4131,40 @@ void TemplateTable::monitorexit() {
   transition(atos, vtos);
   __ verify_oop(R17_tos);
 
-  Register Rcurrent_monitor  = R11_scratch1,
-           Rcurrent_obj      = R12_scratch2,
+  Register Rcurrent_monitor  = R3_ARG1,
+           Rcurrent_obj      = R4_ARG2,
            Robj_to_lock      = R17_tos,
-           Rcurrent_obj_addr = R3_ARG1,
-           Rlimit            = R4_ARG2;
+           Rscratch          = R11_scratch1,
+           Rbot              = R12_scratch2;
+
   Label Lfound, Lillegal_monitor_state;
 
-  // Check corner case: unbalanced monitorEnter / Exit.
-  __ ld(Rlimit, 0, R1_SP);
-  __ addi(Rlimit, Rlimit, - (frame::ijava_state_size + frame::interpreter_frame_monitor_size_in_bytes())); // Monitor base
+  __ ld(Rscratch, _abi0(callers_sp), R1_SP); // load FP
+
+  // Set up search loop - start with topmost monitor.
+  __ mr(Rcurrent_monitor, R26_monitor);
+  __ addi(Rbot, Rscratch, -frame::ijava_state_size);
 
   // Null pointer check.
-  __ null_check_throw(Robj_to_lock, -1, R11_scratch1);
+  __ null_check_throw(Robj_to_lock, -1, Rscratch);
 
-  __ cmpld(CCR0, R26_monitor, Rlimit);
-  __ bgt(CCR0, Lillegal_monitor_state);
+  // Check corner case: unbalanced monitorEnter / Exit.
+  __ cmpld(CCR0, Rcurrent_monitor, Rbot);
+  __ beq(CCR0, Lillegal_monitor_state);
 
   // Find the corresponding slot in the monitors stack section.
   {
     Label Lloop;
 
-    // Start with topmost monitor.
-    __ addi(Rcurrent_obj_addr, R26_monitor, BasicObjectLock::obj_offset_in_bytes());
-    __ addi(Rlimit, Rlimit, BasicObjectLock::obj_offset_in_bytes());
-    __ ld(Rcurrent_obj, 0, Rcurrent_obj_addr);
-    __ addi(Rcurrent_obj_addr, Rcurrent_obj_addr, frame::interpreter_frame_monitor_size() * wordSize);
-
     __ bind(Lloop);
+    __ ld(Rcurrent_obj, BasicObjectLock::obj_offset_in_bytes(), Rcurrent_monitor);
     // Is this entry for same obj?
     __ cmpd(CCR0, Rcurrent_obj, Robj_to_lock);
     __ beq(CCR0, Lfound);
 
-    // Check if last allocated BasicLockObj reached.
-
-    __ ld(Rcurrent_obj, 0, Rcurrent_obj_addr);
-    __ cmpld(CCR0, Rcurrent_obj_addr, Rlimit);
-    __ addi(Rcurrent_obj_addr, Rcurrent_obj_addr, frame::interpreter_frame_monitor_size() * wordSize);
-
-    // Next iteration if unchecked BasicObjectLocks exist on the stack.
-    __ ble(CCR0, Lloop);
+    __ addi(Rcurrent_monitor, Rcurrent_monitor, frame::interpreter_frame_monitor_size_in_bytes());
+    __ cmpld(CCR0, Rcurrent_monitor, Rbot);
+    __ bne(CCR0, Lloop);
   }
 
   // Fell through without finding the basic obj lock => throw up!
@@ -4191,8 +4174,6 @@ void TemplateTable::monitorexit() {
 
   __ align(32, 12);
   __ bind(Lfound);
-  __ addi(Rcurrent_monitor, Rcurrent_obj_addr,
-          -(frame::interpreter_frame_monitor_size() * wordSize) - BasicObjectLock::obj_offset_in_bytes());
   __ unlock_object(Rcurrent_monitor);
 }
 

@@ -1326,28 +1326,19 @@ JvmtiEnv::RunAgentThread(jthread thread, jvmtiStartFunction proc, const void* ar
   }
 
   Handle thread_hndl(current_thread, thread_oop);
-  {
-    MutexLocker mu(current_thread, Threads_lock); // grab Threads_lock
 
-    JvmtiAgentThread *new_thread = new JvmtiAgentThread(this, proc, arg);
+  JvmtiAgentThread* new_thread = new JvmtiAgentThread(this, proc, arg);
 
-    // At this point it may be possible that no osthread was created for the
-    // JavaThread due to lack of memory.
-    if (new_thread == NULL || new_thread->osthread() == NULL) {
-      if (new_thread != NULL) {
-        new_thread->smr_delete();
-      }
-      return JVMTI_ERROR_OUT_OF_MEMORY;
-    }
+  // At this point it may be possible that no osthread was created for the
+  // JavaThread due to lack of resources.
+  if (new_thread->osthread() == NULL) {
+    // The new thread is not known to Thread-SMR yet so we can just delete.
+    delete new_thread;
+    return JVMTI_ERROR_OUT_OF_MEMORY;
+  }
 
-    java_lang_Thread::set_thread(thread_hndl(), new_thread);
-    java_lang_Thread::set_priority(thread_hndl(), (ThreadPriority)priority);
-    java_lang_Thread::set_daemon(thread_hndl());
-
-    new_thread->set_threadObj(thread_hndl());
-    Threads::add(new_thread);
-    Thread::start(new_thread);
-  } // unlock Threads_lock
+  JavaThread::start_internal_daemon(current_thread, new_thread, thread_hndl,
+                                    (ThreadPriority)priority);
 
   return JVMTI_ERROR_NONE;
 } /* end RunAgentThread */
@@ -2756,7 +2747,9 @@ JvmtiEnv::GetFieldName(fieldDescriptor* fdesc_ptr, char** name_ptr, char** signa
 // declaring_class_ptr - pre-checked for NULL
 jvmtiError
 JvmtiEnv::GetFieldDeclaringClass(fieldDescriptor* fdesc_ptr, jclass* declaring_class_ptr) {
-
+  // As for the GetFieldDeclaringClass method, the XSL generated C++ code that calls it has
+  // a jclass of the relevant class or a subclass of it, which is fine in terms of ensuring
+  // the holder is kept alive.
   *declaring_class_ptr = get_jni_class_non_null(fdesc_ptr->field_holder());
   return JVMTI_ERROR_NONE;
 } /* end GetFieldDeclaringClass */
@@ -2834,7 +2827,9 @@ JvmtiEnv::GetMethodName(Method* method, char** name_ptr, char** signature_ptr, c
 jvmtiError
 JvmtiEnv::GetMethodDeclaringClass(Method* method, jclass* declaring_class_ptr) {
   NULL_CHECK(method, JVMTI_ERROR_INVALID_METHODID);
-  (*declaring_class_ptr) = get_jni_class_non_null(method->method_holder());
+  Klass* k = method->method_holder();
+  Handle holder(Thread::current(), k->klass_holder()); // keep the klass alive
+  (*declaring_class_ptr) = get_jni_class_non_null(k);
   return JVMTI_ERROR_NONE;
 } /* end GetMethodDeclaringClass */
 

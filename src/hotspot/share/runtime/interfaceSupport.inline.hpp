@@ -55,7 +55,7 @@ class InterfaceSupport: AllStatic {
  public:
   static unsigned int _scavenge_alot_counter;
   static unsigned int _fullgc_alot_counter;
-  static int _fullgc_alot_invocation;
+  static intx _fullgc_alot_invocation;
 
   // Helper methods used to implement +ScavengeALot and +FullGCALot
   static void check_gc_alot() { if (ScavengeALot || FullGCALot) gc_alot(); }
@@ -336,8 +336,6 @@ class VMNativeEntryWrapper {
 
 #define VM_LEAF_BASE(result_type, header)                            \
   debug_only(NoHandleMark __hm;)                                     \
-  MACOS_AARCH64_ONLY(ThreadWXEnable __wx(WXWrite,                    \
-                                         JavaThread::current()));    \
   os::verify_stack_alignment();                                      \
   /* begin of body */
 
@@ -477,6 +475,7 @@ extern "C" {                                                         \
 #define JVM_ENTRY_FROM_LEAF(env, result_type, header)                \
   { {                                                                \
     JavaThread* thread=JavaThread::thread_from_jni_environment(env); \
+    MACOS_AARCH64_ONLY(ThreadWXEnable __wx(WXWrite, thread));        \
     ThreadInVMfromNative __tiv(thread);                              \
     debug_only(VMNativeEntryWrapper __vew;)                          \
     VM_ENTRY_BASE_FROM_LEAF(result_type, header, thread)

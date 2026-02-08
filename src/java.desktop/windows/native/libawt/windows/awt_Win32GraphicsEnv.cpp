@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -35,10 +35,8 @@
 BOOL DWMIsCompositionEnabled();
 
 void initScreens(JNIEnv *env) {
-
     if (!Devices::UpdateInstance(env)) {
         JNU_ThrowInternalError(env, "Could not update the devices array.");
-        return;
     }
 }
 
@@ -234,7 +232,7 @@ Java_sun_awt_Win32FontManager_getEUDCFontFile(JNIEnv *env, jclass cl) {
     unsigned long fontPathLen = MAX_PATH + 1;
     WCHAR  tmpPath[MAX_PATH + 1];
     LPWSTR fontPath = fontPathBuf;
-    LPWSTR eudcKey = NULL;
+    LPCWSTR eudcKey = NULL;
 
     LANGID langID = GetSystemDefaultLangID();
     //lookup for encoding ID, EUDC only supported in

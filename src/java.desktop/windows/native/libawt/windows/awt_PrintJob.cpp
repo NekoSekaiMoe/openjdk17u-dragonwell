@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,8 +65,8 @@ extern "C" {
 
 /*** Private Constants ***/
 
-static char *kJavaIntStr = "I";
-static char *kJavaLongStr = "J";
+static const char *kJavaIntStr = "I";
+static const char *kJavaLongStr = "J";
 
 /* 2D printing uses 3 byte BGR pixels in Raster printing */
 static int J2DRasterBPP = 3;
@@ -1354,7 +1354,7 @@ Java_sun_awt_windows_WPrinterJob__1startDoc(JNIEnv *env, jobject self,
     } else {
         destination = VerifyDestination(env, self);
     }
-    LPTSTR docname = NULL;
+    LPCTSTR docname = NULL;
     if (jobname != NULL) {
         LPTSTR tmp = (LPTSTR)JNU_GetStringPlatformChars(env, jobname, NULL);
         if (tmp == NULL) {
@@ -3925,9 +3925,13 @@ static void throwPrinterException(JNIEnv *env, DWORD err) {
                   sizeof(t_errStr),
                   NULL );
 
-    WideCharToMultiByte(CP_UTF8, 0, t_errStr, -1,
+    int nb = WideCharToMultiByte(CP_UTF8, 0, t_errStr, -1,
                         errStr, sizeof(errStr), NULL, NULL);
-    JNU_ThrowByName(env, PRINTEREXCEPTION_STR, errStr);
+    if (nb > 0) {
+        JNU_ThrowByName(env, PRINTEREXCEPTION_STR, errStr);
+    } else {
+        JNU_ThrowByName(env, PRINTEREXCEPTION_STR, "secondary error during OS message extraction");
+    }
 }
 
 

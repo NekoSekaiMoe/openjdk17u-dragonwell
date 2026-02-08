@@ -1057,7 +1057,7 @@ class StubGenerator: public StubCodeGenerator {
 
   void copy_memory_small(Register s, Register d, Register count, Register tmp, int step) {
     bool is_backwards = step < 0;
-    size_t granularity = uabs(step);
+    size_t granularity = g_uabs(step);
     int direction = is_backwards ? -1 : 1;
     int unit = wordSize * direction;
 
@@ -1113,7 +1113,7 @@ class StubGenerator: public StubCodeGenerator {
                    Register count, Register tmp, int step) {
     copy_direction direction = step < 0 ? copy_backwards : copy_forwards;
     bool is_backwards = step < 0;
-    unsigned int granularity = uabs(step);
+    unsigned int granularity = g_uabs(step);
     const Register t0 = r3, t1 = r4;
 
     // <= 80 (or 96 for SIMD) bytes do inline. Direction doesn't matter because we always
@@ -2979,6 +2979,22 @@ class StubGenerator: public StubCodeGenerator {
     return start;
   }
 
+  // Big-endian 128-bit + 64-bit -> 128-bit addition.
+  // Inputs: 128-bits. in is preserved.
+  // The least-significant 64-bit word is in the upper dword of the vector
+  // inc (the 64-bit increment) is preserved. Its lower dword must be zero
+  // Output: result
+  void be_add_128_64(FloatRegister result, FloatRegister in,
+               FloatRegister inc, FloatRegister tmp) {
+    assert_different_registers(result, tmp, inc);
+
+    __ addv(result, __ T2D, in, inc);      // Add inc to the least-significant dword of input
+    __ cmhi(tmp, __ T2D, inc, result);     // Check for result overflowing
+    __ ins(tmp, __ D, tmp, 0, 1);          // Move LSD of comparison result to MSD
+    __ ins(tmp, __ D, inc, 1, 0);          // Move 0 to LSD of comparison result
+    __ subv(result, __ T2D, result, tmp);  // Subtract -1 from MSD if there was an overflow
+  }
+
   // CTR AES crypt.
   // Arguments:
   //
@@ -3088,13 +3104,16 @@ class StubGenerator: public StubCodeGenerator {
       // Setup the counter
       __ movi(v4, __ T4S, 0);
       __ movi(v5, __ T4S, 1);
-      __ ins(v4, __ S, v5, 3, 3); // v4 contains { 0, 0, 0, 1 }
+      __ ins(v4, __ S, v5, 2, 2); // v4 contains { 0, 1 }
 
-      __ ld1(v0, __ T16B, counter); // Load the counter into v0
-      __ rev32(v16, __ T16B, v0);
-      __ addv(v16, __ T4S, v16, v4);
-      __ rev32(v16, __ T16B, v16);
-      __ st1(v16, __ T16B, counter); // Save the incremented counter back
+      // 128-bit big-endian increment
+      __ ld1(v0, __ T16B, counter);
+      __ rev64(v16, __ T16B, v0);
+      be_add_128_64(v16, v16, v4, /*tmp*/v5);
+      __ rev64(v16, __ T16B, v16);
+      __ st1(v16, __ T16B, counter);
+      // Previous counter value is in v0
+      // v4 contains { 0, 1 }
 
       {
         // We have fewer than bulk_width blocks of data left. Encrypt
@@ -3126,9 +3145,9 @@ class StubGenerator: public StubCodeGenerator {
 
         // Increment the counter, store it back
         __ orr(v0, __ T16B, v16, v16);
-        __ rev32(v16, __ T16B, v16);
-        __ addv(v16, __ T4S, v16, v4);
-        __ rev32(v16, __ T16B, v16);
+        __ rev64(v16, __ T16B, v16);
+        be_add_128_64(v16, v16, v4, /*tmp*/v5);
+        __ rev64(v16, __ T16B, v16);
         __ st1(v16, __ T16B, counter); // Save the incremented counter back
 
         __ b(inner_loop);
@@ -3176,7 +3195,7 @@ class StubGenerator: public StubCodeGenerator {
     // Keys should already be loaded into the correct registers
 
     __ ld1(v0, __ T16B, counter); // v0 contains the first counter
-    __ rev32(v16, __ T16B, v0); // v16 contains byte-reversed counter
+    __ rev64(v16, __ T16B, v0); // v16 contains byte-reversed counter
 
     // AES/CTR loop
     {
@@ -3186,11 +3205,11 @@ class StubGenerator: public StubCodeGenerator {
       // Setup the counters
       __ movi(v8, __ T4S, 0);
       __ movi(v9, __ T4S, 1);
-      __ ins(v8, __ S, v9, 3, 3); // v8 contains { 0, 0, 0, 1 }
+      __ ins(v8, __ S, v9, 2, 2); // v8 contains { 0, 1 }
 
       for (FloatRegister f = v0; f < v0 + bulk_width; f++) {
-        __ rev32(f, __ T16B, v16);
-        __ addv(v16, __ T4S, v16, v8);
+        __ rev64(f, __ T16B, v16);
+        be_add_128_64(v16, v16, v8, /*tmp*/v9);
       }
 
       __ ld1(v8, v9, v10, v11, __ T16B, __ post(in, 4 * 16));
@@ -3218,7 +3237,7 @@ class StubGenerator: public StubCodeGenerator {
     }
 
     // Save the counter back where it goes
-    __ rev32(v16, __ T16B, v16);
+    __ rev64(v16, __ T16B, v16);
     __ st1(v16, __ T16B, counter);
 
     __ pop(saved_regs, sp);
@@ -3280,19 +3299,19 @@ class StubGenerator: public StubCodeGenerator {
     __ addw(rscratch4, r1, rscratch2);           \
     __ ldrw(rscratch1, Address(buf, k*4));       \
     __ eorw(rscratch3, rscratch3, r4);           \
-    __ addw(rscratch3, rscratch3, rscratch1);    \
+    __ addw(rscratch4, rscratch4, rscratch1);    \
     __ addw(rscratch3, rscratch3, rscratch4);    \
     __ rorw(rscratch2, rscratch3, 32 - s);       \
     __ addw(r1, rscratch2, r2);
 
 #define GG(r1, r2, r3, r4, k, s, t)              \
-    __ eorw(rscratch2, r2, r3);                  \
+    __ andw(rscratch3, r2, r4);                  \
+    __ bicw(rscratch4, r3, r4);                  \
     __ ldrw(rscratch1, Address(buf, k*4));       \
-    __ andw(rscratch3, rscratch2, r4);           \
     __ movw(rscratch2, t);                       \
-    __ eorw(rscratch3, rscratch3, r3);           \
+    __ orrw(rscratch3, rscratch3, rscratch4);    \
     __ addw(rscratch4, r1, rscratch2);           \
-    __ addw(rscratch3, rscratch3, rscratch1);    \
+    __ addw(rscratch4, rscratch4, rscratch1);    \
     __ addw(rscratch3, rscratch3, rscratch4);    \
     __ rorw(rscratch2, rscratch3, 32 - s);       \
     __ addw(r1, rscratch2, r2);
@@ -3303,7 +3322,7 @@ class StubGenerator: public StubCodeGenerator {
     __ addw(rscratch4, r1, rscratch2);           \
     __ ldrw(rscratch1, Address(buf, k*4));       \
     __ eorw(rscratch3, rscratch3, r2);           \
-    __ addw(rscratch3, rscratch3, rscratch1);    \
+    __ addw(rscratch4, rscratch4, rscratch1);    \
     __ addw(rscratch3, rscratch3, rscratch4);    \
     __ rorw(rscratch2, rscratch3, 32 - s);       \
     __ addw(r1, rscratch2, r2);
@@ -3314,7 +3333,7 @@ class StubGenerator: public StubCodeGenerator {
     __ addw(rscratch4, r1, rscratch3);           \
     __ ldrw(rscratch1, Address(buf, k*4));       \
     __ eorw(rscratch3, rscratch2, r3);           \
-    __ addw(rscratch3, rscratch3, rscratch1);    \
+    __ addw(rscratch4, rscratch4, rscratch1);    \
     __ addw(rscratch3, rscratch3, rscratch4);    \
     __ rorw(rscratch2, rscratch3, 32 - s);       \
     __ addw(r1, rscratch2, r2);
@@ -4015,46 +4034,6 @@ class StubGenerator: public StubCodeGenerator {
     __ ret(lr);
 
     return start;
-  }
-
-  // Safefetch stubs.
-  void generate_safefetch(const char* name, int size, address* entry,
-                          address* fault_pc, address* continuation_pc) {
-    // safefetch signatures:
-    //   int      SafeFetch32(int*      adr, int      errValue);
-    //   intptr_t SafeFetchN (intptr_t* adr, intptr_t errValue);
-    //
-    // arguments:
-    //   c_rarg0 = adr
-    //   c_rarg1 = errValue
-    //
-    // result:
-    //   PPC_RET  = *adr or errValue
-
-    StubCodeMark mark(this, "StubRoutines", name);
-
-    // Entry point, pc or function descriptor.
-    *entry = __ pc();
-
-    // Load *adr into c_rarg1, may fault.
-    *fault_pc = __ pc();
-    switch (size) {
-      case 4:
-        // int32_t
-        __ ldrw(c_rarg1, Address(c_rarg0, 0));
-        break;
-      case 8:
-        // int64_t
-        __ ldr(c_rarg1, Address(c_rarg0, 0));
-        break;
-      default:
-        ShouldNotReachHere();
-    }
-
-    // return errValue or *adr
-    *continuation_pc = __ pc();
-    __ mov(r0, c_rarg1);
-    __ ret(lr);
   }
 
   /**
@@ -4997,6 +4976,7 @@ class StubGenerator: public StubCodeGenerator {
   // result = r0 - return value. Already contains "false"
   // cnt1 = r10 - amount of elements left to check, reduced by wordSize
   // r3-r5 are reserved temporary registers
+  // Clobbers: v0-v7 when UseSIMDForArrayEquals, rscratch1, rscratch2
   address generate_large_array_equals() {
     Register a1 = r1, a2 = r2, result = r0, cnt1 = r10, tmp1 = rscratch1,
         tmp2 = rscratch2, tmp3 = r3, tmp4 = r4, tmp5 = r5, tmp6 = r11,
@@ -5443,6 +5423,8 @@ class StubGenerator: public StubCodeGenerator {
   // R2 = cnt1
   // R3 = str1
   // R4 = cnt2
+  // Clobbers: rscratch1, rscratch2, v0, v1, rflags
+  //
   // This generic linear code use few additional ideas, which makes it faster:
   // 1) we can safely keep at least 1st register of pattern(since length >= 8)
   // in order to skip initial loading(help in systems with 1 ld pipeline)
@@ -5757,6 +5739,7 @@ class StubGenerator: public StubCodeGenerator {
   // R3 = len >> 3
   // V0 = 0
   // v1 = loaded 8 bytes
+  // Clobbers: r0, r1, r3, rscratch1, rflags, v0-v6
   address generate_large_byte_array_inflate() {
     __ align(CodeEntryAlignment);
     StubCodeMark mark(this, "StubRoutines", "large_byte_array_inflate");
@@ -6496,10 +6479,16 @@ class StubGenerator: public StubCodeGenerator {
     __ ret(lr);
   }
 
-  void gen_ldaddal_entry(Assembler::operand_size size) {
+  void gen_ldadd_entry(Assembler::operand_size size, atomic_memory_order order) {
     Register prev = r2, addr = c_rarg0, incr = c_rarg1;
-    __ ldaddal(size, incr, prev, addr);
-    __ membar(Assembler::StoreStore|Assembler::StoreLoad);
+    // If not relaxed, then default to conservative.  Relaxed is the only
+    // case we use enough to be worth specializing.
+    if (order == memory_order_relaxed) {
+      __ ldadd(size, incr, prev, addr);
+    } else {
+      __ ldaddal(size, incr, prev, addr);
+      __ membar(Assembler::StoreStore|Assembler::StoreLoad);
+    }
     if (size == Assembler::xword) {
       __ mov(r0, prev);
     } else {
@@ -6529,12 +6518,21 @@ class StubGenerator: public StubCodeGenerator {
     StubCodeMark mark(this, "StubRoutines", "atomic entry points");
     address first_entry = __ pc();
 
-    // All memory_order_conservative
+    // ADD, memory_order_conservative
     AtomicStubMark mark_fetch_add_4(_masm, &aarch64_atomic_fetch_add_4_impl);
-    gen_ldaddal_entry(Assembler::word);
+    gen_ldadd_entry(Assembler::word, memory_order_conservative);
     AtomicStubMark mark_fetch_add_8(_masm, &aarch64_atomic_fetch_add_8_impl);
-    gen_ldaddal_entry(Assembler::xword);
+    gen_ldadd_entry(Assembler::xword, memory_order_conservative);
 
+    // ADD, memory_order_relaxed
+    AtomicStubMark mark_fetch_add_4_relaxed
+      (_masm, &aarch64_atomic_fetch_add_4_relaxed_impl);
+    gen_ldadd_entry(MacroAssembler::word, memory_order_relaxed);
+    AtomicStubMark mark_fetch_add_8_relaxed
+      (_masm, &aarch64_atomic_fetch_add_8_relaxed_impl);
+    gen_ldadd_entry(MacroAssembler::xword, memory_order_relaxed);
+
+    // XCHG, memory_order_conservative
     AtomicStubMark mark_xchg_4(_masm, &aarch64_atomic_xchg_4_impl);
     gen_swpal_entry(Assembler::word);
     AtomicStubMark mark_xchg_8_impl(_masm, &aarch64_atomic_xchg_8_impl);
@@ -7559,14 +7557,6 @@ class StubGenerator: public StubCodeGenerator {
     if (vmIntrinsics::is_intrinsic_available(vmIntrinsics::_dcos)) {
       StubRoutines::_dcos = generate_dsin_dcos(/* isCos = */ true);
     }
-
-    // Safefetch stubs.
-    generate_safefetch("SafeFetch32", sizeof(int),     &StubRoutines::_safefetch32_entry,
-                                                       &StubRoutines::_safefetch32_fault_pc,
-                                                       &StubRoutines::_safefetch32_continuation_pc);
-    generate_safefetch("SafeFetchN", sizeof(intptr_t), &StubRoutines::_safefetchN_entry,
-                                                       &StubRoutines::_safefetchN_fault_pc,
-                                                       &StubRoutines::_safefetchN_continuation_pc);
   }
 
   void generate_all() {
@@ -7745,6 +7735,8 @@ void StubGenerator_generate(CodeBuffer* code, bool all) {
 
 DEFAULT_ATOMIC_OP(fetch_add, 4, )
 DEFAULT_ATOMIC_OP(fetch_add, 8, )
+DEFAULT_ATOMIC_OP(fetch_add, 4, _relaxed)
+DEFAULT_ATOMIC_OP(fetch_add, 8, _relaxed)
 DEFAULT_ATOMIC_OP(xchg, 4, )
 DEFAULT_ATOMIC_OP(xchg, 8, )
 DEFAULT_ATOMIC_OP(cmpxchg, 1, )

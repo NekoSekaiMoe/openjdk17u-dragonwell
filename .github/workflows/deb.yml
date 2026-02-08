@@ -1,0 +1,58 @@
+name: 'Build debian package'
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  amd:
+    name: 'Build for x64'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: 'Install dep'
+        run: |
+          sudo apt-get update
+          sudo apt-get install build-essential dpkg-dev pkg-config -y
+
+      - name: 'Checkout the scripts'
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+
+      - name: 'Install dep stage 2'
+        run: |
+          sudo apt build-dep . -y
+
+      - name: 'Build'
+        run: |
+          sudo dpkg-buildpackage -b -us -uc -d
+
+  aarch:
+    name: 'Build for arm64'
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: 'Install dep'
+        run: |
+          sudo apt-get update
+          sudo apt-get install build-essential dpkg-dev pkg-config -y
+
+      - name: 'Checkout the scripts'
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+
+      - name: 'Install dep stage 2'
+        run: |
+          sudo apt build-dep . -y
+
+      - name: 'Build'
+        run: |
+          sudo dpkg-buildpackage -b -us -uc -d
+
+

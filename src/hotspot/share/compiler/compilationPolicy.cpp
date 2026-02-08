@@ -894,6 +894,10 @@ bool CompilationPolicy::is_method_profiled(const methodHandle& method) {
 
 // Determine is a method is mature.
 bool CompilationPolicy::is_mature(Method* method) {
+  if (Arguments::is_compiler_only()) {
+    // Always report profiles as immature with -Xcomp
+    return false;
+  }
   methodHandle mh(Thread::current(), method);
   MethodData* mdo = method->method_data();
   if (mdo != NULL) {
@@ -1011,7 +1015,7 @@ CompLevel CompilationPolicy::common(const methodHandle& method, CompLevel cur_le
   if (force_comp_at_level_simple(method)) {
     next_level = CompLevel_simple;
   } else {
-    if (is_trivial(method)) {
+    if (is_trivial(method) || method->is_native()) {
       next_level = CompilationModeFlag::disable_intermediate() ? CompLevel_full_optimization : CompLevel_simple;
     } else {
       switch(cur_level) {

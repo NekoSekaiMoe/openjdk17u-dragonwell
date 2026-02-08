@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2108, Red Hat Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -29,6 +29,11 @@
 #include "asm/assembler.hpp"
 #include "runtime/icache.hpp"
 #include "runtime/os.hpp"
+#include "runtime/os.hpp"
+#if INCLUDE_JVMCI
+#include "jvmci/jvmciExceptions.hpp"
+#endif
+
 
 // We have interfaces for the following instructions:
 // - NativeInstruction
@@ -207,6 +212,7 @@ public:
   int displacement() const { return (int_at(displacement_offset) << 6) >> 4; }
   address displacement_address() const { return addr_at(displacement_offset); }
   address return_address() const { return addr_at(return_address_offset); }
+  address raw_destination() const { return instruction_address() + displacement(); }
   address destination() const;
 
   void set_destination(address dest) {
@@ -246,12 +252,12 @@ public:
   //
   // Used in the runtime linkage of calls; see class CompiledIC.
   // (Cf. 4506997 and 4479829, where threads witnessed garbage displacements.)
-
-  // The parameter assert_lock disables the assertion during code generation.
-  void set_destination_mt_safe(address dest, bool assert_lock = true);
+  void set_destination_mt_safe(address dest);
 
   address get_trampoline();
-  address trampoline_jump(CodeBuffer &cbuf, address dest);
+#if INCLUDE_JVMCI
+  void trampoline_jump(CodeBuffer &cbuf, address dest, JVMCI_TRAPS);
+#endif
 };
 
 inline NativeCall* nativeCall_at(address address) {

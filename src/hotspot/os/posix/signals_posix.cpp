@@ -32,22 +32,23 @@
 #include "runtime/java.hpp"
 #include "runtime/os.hpp"
 #include "runtime/osThread.hpp"
+#include "runtime/safefetch.hpp"
 #include "runtime/semaphore.inline.hpp"
-#include "runtime/stubRoutines.hpp"
 #include "runtime/thread.hpp"
 #include "signals_posix.hpp"
 #include "utilities/events.hpp"
 #include "utilities/ostream.hpp"
 #include "utilities/vmError.hpp"
 
-#ifdef ZERO
-// See stubGenerator_zero.cpp
-#include <setjmp.h>
-extern sigjmp_buf* get_jmp_buf_for_continuation();
-#endif
-
 #include <signal.h>
 
+#define SEGV_BNDERR_value 3
+
+#if defined(SEGV_BNDERR)
+STATIC_ASSERT(SEGV_BNDERR == SEGV_BNDERR_value);
+#else
+#define SEGV_BNDERR SEGV_BNDERR_value
+#endif
 
 static const char* get_signal_name(int sig, char* out, size_t outlen);
 
@@ -594,25 +595,26 @@ int JVM_HANDLE_XXX_SIGNAL(int sig, siginfo_t* info,
   }
 #endif
 
+  // Extract pc from context. Note that for certain signals and certain
+  // architectures the pc in ucontext_t will point *after* the offending
+  // instruction. In those cases, use siginfo si_addr instead.
+  address pc = NULL;
+  if (uc != NULL) {
+    if (S390_ONLY(sig == SIGILL || sig == SIGFPE) NOT_S390(false)) {
+      pc = (address)info->si_addr;
+    } else if (ZERO_ONLY(true) NOT_ZERO(false)) {
+      // Non-arch-specific Zero code does not really know the pc.
+      // This can be alleviated by making arch-specific os::Posix::ucontext_get_pc
+      // available for Zero for known architectures. But for generic Zero
+      // code, it would still remain unknown.
+      pc = NULL;
+    } else {
+      pc = os::Posix::ucontext_get_pc(uc);
+    }
+  }
+
   if (!signal_was_handled) {
-    // Handle SafeFetch access.
-#ifndef ZERO
-    if ((sig == SIGSEGV || sig == SIGBUS) && uc != NULL) {
-      address pc = os::Posix::ucontext_get_pc(uc);
-      if (StubRoutines::is_safefetch_fault(pc)) {
-        os::Posix::ucontext_set_pc(uc, StubRoutines::continuation_for_safefetch_fault(pc));
-        signal_was_handled = true;
-      }
-    }
-#else
-    // See JDK-8076185
-    if (sig == SIGSEGV || sig == SIGBUS) {
-      sigjmp_buf* const pjb = get_jmp_buf_for_continuation();
-      if (pjb) {
-        siglongjmp(*pjb, 1);
-      }
-    }
-#endif // ZERO
+    signal_was_handled = handle_safefetch(sig, pc, uc);
   }
 
   // Ignore SIGPIPE and SIGXFSZ (4229104, 6499219).
@@ -637,22 +639,6 @@ int JVM_HANDLE_XXX_SIGNAL(int sig, siginfo_t* info,
 
   // Invoke fatal error handling.
   if (!signal_was_handled && abort_if_unrecognized) {
-    // Extract pc from context for the error handler to display.
-    address pc = NULL;
-    if (uc != NULL) {
-      // prepare fault pc address for error reporting.
-      if (S390_ONLY(sig == SIGILL || sig == SIGFPE) NOT_S390(false)) {
-        pc = (address)info->si_addr;
-      } else if (ZERO_ONLY(true) NOT_ZERO(false)) {
-        // Non-arch-specific Zero code does not really know the pc.
-        // This can be alleviated by making arch-specific os::Posix::ucontext_get_pc
-        // available for Zero for known architectures. But for generic Zero
-        // code, it would still remain unknown.
-        pc = NULL;
-      } else {
-        pc = os::Posix::ucontext_get_pc(uc);
-      }
-    }
     // For Zero, we ignore the crash context, because:
     //  a) The crash would be in C++ interpreter code, so context is not really relevant;
     //  b) Generic Zero code would not be able to parse it, so when generic error
@@ -784,7 +770,7 @@ static address get_signal_handler(const struct sigaction* action) {
 
 typedef int (*os_sigaction_t)(int, const struct sigaction *, struct sigaction *);
 
-static void SR_handler(int sig, siginfo_t* siginfo, ucontext_t* context);
+static void SR_handler(int sig, siginfo_t* siginfo, void* ucVoid);
 
 // Semantically compare two sigaction structures. Return true if they are referring to
 // the same handler, using the same flags.
@@ -935,6 +921,9 @@ static bool get_signal_code_description(const siginfo_t* si, enum_sigcode_desc_t
     { SIGFPE,  FPE_FLTSUB,   "FPE_FLTSUB",   "Subscript out of range." },
     { SIGSEGV, SEGV_MAPERR,  "SEGV_MAPERR",  "Address not mapped to object." },
     { SIGSEGV, SEGV_ACCERR,  "SEGV_ACCERR",  "Invalid permissions for mapped object." },
+#if defined(LINUX)
+    { SIGSEGV, SEGV_BNDERR,  "SEGV_BNDERR",  "Failed address bound checks." },
+#endif
 #if defined(AIX)
     // no explanation found what keyerr would be
     { SIGSEGV, SEGV_KEYERR,  "SEGV_KEYERR",  "key error" },
@@ -1576,8 +1565,8 @@ static void resume_clear_context(OSThread *osthread) {
   osthread->set_siginfo(NULL);
 }
 
-static void suspend_save_context(OSThread *osthread, siginfo_t* siginfo, ucontext_t* context) {
-  osthread->set_ucontext(context);
+static void suspend_save_context(OSThread *osthread, siginfo_t* siginfo, void* ucVoid) {
+  osthread->set_ucontext((ucontext_t*)ucVoid);
   osthread->set_siginfo(siginfo);
 }
 
@@ -1594,7 +1583,7 @@ static void suspend_save_context(OSThread *osthread, siginfo_t* siginfo, ucontex
 //
 // Currently only ever called on the VMThread and JavaThreads (PC sampling)
 //
-static void SR_handler(int sig, siginfo_t* siginfo, ucontext_t* context) {
+static void SR_handler(int sig, siginfo_t* siginfo, void* ucVoid) {
 
   // Save and restore errno to avoid confusing native code with EINTR
   // after sigsuspend.
@@ -1603,7 +1592,22 @@ static void SR_handler(int sig, siginfo_t* siginfo, ucontext_t* context) {
   PosixSignals::unblock_error_signals();
 
   Thread* thread = Thread::current_or_null_safe();
-  assert(thread != NULL, "Missing current thread in SR_handler");
+
+  // The suspend/resume signal may have been sent from outside the process, deliberately or
+  // accidentally. In that case the receiving thread may not be attached to the VM. We handle
+  // that case by asserting (debug VM) resp. writing a diagnostic message to tty and
+  // otherwise ignoring the stray signal (release VMs).
+  // We print the siginfo as part of the diagnostics, which also contains the sender pid of
+  // the stray signal.
+  if (thread == nullptr) {
+    stringStream ss;
+    ss.print_raw("Non-attached thread received stray SR signal (");
+    os::print_siginfo(&ss, siginfo);
+    ss.print_raw(").");
+    assert(thread != NULL, "%s.", ss.base());
+    log_warning(os)("%s", ss.base());
+    return;
+  }
 
   // On some systems we have seen signal delivery get "stuck" until the signal
   // mask is changed as part of thread termination. Check that the current thread
@@ -1622,7 +1626,7 @@ static void SR_handler(int sig, siginfo_t* siginfo, ucontext_t* context) {
   os::SuspendResume::State current = osthread->sr.state();
 
   if (current == os::SuspendResume::SR_SUSPEND_REQUEST) {
-    suspend_save_context(osthread, siginfo, context);
+    suspend_save_context(osthread, siginfo, ucVoid);
 
     // attempt to switch the state, we assume we had a SUSPEND_REQUEST
     os::SuspendResume::State state = osthread->sr.suspended();
@@ -1691,7 +1695,7 @@ int SR_initialize() {
 
   // Set up signal handler for suspend/resume
   act.sa_flags = SA_RESTART|SA_SIGINFO;
-  act.sa_handler = (void (*)(int)) SR_handler;
+  act.sa_sigaction = SR_handler;
 
   // SR_signum is blocked by default.
   pthread_sigmask(SIG_BLOCK, NULL, &act.sa_mask);

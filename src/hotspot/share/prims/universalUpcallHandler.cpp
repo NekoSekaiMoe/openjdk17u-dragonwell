@@ -135,16 +135,16 @@ void ProgrammableUpcallHandler::on_exit(OptimizedEntryBlob::FrameData* context) 
 
   thread->dec_java_call_counter();
 
-  // Old thread-local info. has been restored. We are now back in native code.
-  ThreadStateTransition::transition_from_java(thread, _thread_in_native);
+  debug_only(thread->dec_java_call_counter());
 
   thread->frame_anchor()->copy(&context->jfa);
+
+  // Old thread-local info. has been restored. We are now back in native code.
+  ThreadStateTransition::transition_from_java(thread, _thread_in_native);
 
   // Release handles after we are marked as being in native code again, since this
   // operation might block
   JNIHandleBlock::release_block(context->new_handles, thread);
-
-  assert(!thread->has_pending_exception(), "Upcall can not throw an exception");
 
   if (context->should_detach) {
     detach_current_thread();

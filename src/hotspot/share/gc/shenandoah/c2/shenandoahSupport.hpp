@@ -50,7 +50,6 @@ private:
 
   static bool verify_helper(Node* in, Node_Stack& phis, VectorSet& visited, verify_type t, bool trace, Unique_Node_List& barriers_used);
   static void report_verify_failure(const char* msg, Node* n1 = NULL, Node* n2 = NULL);
-  static void verify_raw_mem(RootNode* root);
 #endif
   static Node* dom_mem(Node* mem, Node* ctrl, int alias, Node*& mem_ctrl, PhaseIdealLoop* phase);
   static Node* no_branches(Node* c, Node* dom, bool allow_one_proj, PhaseIdealLoop* phase);
@@ -61,13 +60,18 @@ private:
   static void test_null(Node*& ctrl, Node* val, Node*& null_ctrl, PhaseIdealLoop* phase);
   static void test_gc_state(Node*& ctrl, Node* raw_mem, Node*& heap_stable_ctrl,
                             PhaseIdealLoop* phase, int flags);
-  static void call_lrb_stub(Node*& ctrl, Node*& val, Node* load_addr, Node*& result_mem, Node* raw_mem,
+  static void call_lrb_stub(Node*& ctrl, Node*& val, Node* load_addr,
                             DecoratorSet decorators, PhaseIdealLoop* phase);
+
+  static void collect_nodes_above_barrier(Unique_Node_List &nodes_above_barrier, PhaseIdealLoop* phase, Node* ctrl,
+                                          Node* init_raw_mem);
+
   static void test_in_cset(Node*& ctrl, Node*& not_cset_ctrl, Node* val, Node* raw_mem, PhaseIdealLoop* phase);
   static void move_gc_state_test_out_of_loop(IfNode* iff, PhaseIdealLoop* phase);
   static void merge_back_to_back_tests(Node* n, PhaseIdealLoop* phase);
+  static bool merge_point_safe(Node* region);
   static bool identical_backtoback_ifs(Node *n, PhaseIdealLoop* phase);
-  static void fix_ctrl(Node* barrier, Node* region, const MemoryGraphFixer& fixer, Unique_Node_List& uses, Unique_Node_List& uses_to_ignore, uint last, PhaseIdealLoop* phase);
+  static void fix_ctrl(Node* barrier, Node* region, const MemoryGraphFixer& fixer, Unique_Node_List& uses, Unique_Node_List& nodes_above_barrier, uint last, PhaseIdealLoop* phase);
   static IfNode* find_unswitching_candidate(const IdealLoopTree *loop, PhaseIdealLoop* phase);
 
   static Node* get_load_addr(PhaseIdealLoop* phase, VectorSet& visited, Node* lrb);
@@ -82,6 +86,11 @@ public:
   static void pin_and_expand(PhaseIdealLoop* phase);
   static void optimize_after_expansion(VectorSet& visited, Node_Stack& nstack, Node_List& old_new, PhaseIdealLoop* phase);
 
+  static void push_data_inputs_at_control(PhaseIdealLoop* phase, Node* n, Node* ctrl,
+                                          Unique_Node_List &wq);
+  static bool is_anti_dependent_load_at_control(PhaseIdealLoop* phase, Node* maybe_load, Node* store, Node* control);
+
+  static void maybe_push_anti_dependent_loads(PhaseIdealLoop* phase, Node* maybe_store, Node* control, Unique_Node_List &wq);
 #ifdef ASSERT
   static void verify(RootNode* root);
 #endif
@@ -133,6 +142,8 @@ public:
   int alias() const { return _alias; }
 
   Node* collect_memory_for_infinite_loop(const Node* in);
+
+  void record_new_ctrl(Node* ctrl, Node* region, Node* mem, Node* mem_for_ctrl);
 };
 
 class ShenandoahCompareAndSwapPNode : public CompareAndSwapPNode {

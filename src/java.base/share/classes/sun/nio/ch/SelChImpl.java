@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@ import com.alibaba.wisp.engine.WispEngine;
 import jdk.internal.access.SharedSecrets;
 import jdk.internal.access.WispEngineAccess;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 /**
@@ -95,6 +96,11 @@ public interface SelChImpl extends Channel {
             millis = -1;
         } else {
             millis = NANOSECONDS.toMillis(nanos);
+            if (nanos > MILLISECONDS.toNanos(millis)) {
+                // Round up any excess nanos to the nearest millisecond to
+                // avoid parking for less than requested.
+                millis++;
+            }
         }
         if (WispEngine.transparentWispSwitch() && !(this instanceof DatagramChannelImpl)) {
             WEA.poll((SelectableChannel)this, event, millis);

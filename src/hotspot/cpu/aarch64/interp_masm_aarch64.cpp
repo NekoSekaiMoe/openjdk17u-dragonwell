@@ -1659,7 +1659,7 @@ void InterpreterMacroAssembler::call_VM_base(Register oop_result,
 }
 
 void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& mdo_addr) {
-  assert_different_registers(obj, rscratch1);
+  assert_different_registers(obj, rscratch1, mdo_addr.base(), mdo_addr.index());
   Label update, next, none;
 
   verify_oop(obj);
@@ -1681,13 +1681,13 @@ void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& md
   tbnz(obj, exact_log2(TypeEntries::type_unknown), next);
   // already unknown. Nothing to do anymore.
 
-  ldr(rscratch1, mdo_addr);
   cbz(rscratch1, none);
   cmp(rscratch1, (u1)TypeEntries::null_seen);
   br(Assembler::EQ, none);
-  // There is a chance that the checks above (re-reading profiling
-  // data from memory) fail if another thread has just set the
+  // There is a chance that the checks above
+  // fail if another thread has just set the
   // profiling to this obj's klass
+  eor(obj, obj, rscratch1); // get back original value before XOR
   ldr(rscratch1, mdo_addr);
   eor(obj, obj, rscratch1);
   tst(obj, TypeEntries::type_klass_mask);
@@ -1700,6 +1700,10 @@ void InterpreterMacroAssembler::profile_obj_type(Register obj, const Address& md
   bind(none);
   // first time here. Set profile type.
   str(obj, mdo_addr);
+#ifdef ASSERT
+  andr(obj, obj, TypeEntries::type_mask);
+  verify_klass_ptr(obj);
+#endif
 
   bind(next);
 }
@@ -1867,3 +1871,15 @@ void InterpreterMacroAssembler::profile_parameters_type(Register mdp, Register t
     bind(profile_continue);
   }
 }
+
+#ifdef ASSERT
+void InterpreterMacroAssembler::verify_field_offset(Register reg) {
+  // Verify the field offset is not in the header, implicitly checks for 0
+  Label L;
+  subs(zr, reg, static_cast<int>(sizeof(markWord) + (UseCompressedClassPointers ? sizeof(narrowKlass) : sizeof(Klass*))));
+  br(Assembler::GE, L);
+  stop("bad field offset");
+  bind(L);
+}
+#endif
+

@@ -31,7 +31,7 @@ import compiler.lib.ir_framework.test.*;
 import jdk.test.lib.Platform;
 import jdk.test.lib.Utils;
 import jdk.test.lib.helpers.ClassFileInstaller;
-import sun.hotspot.WhiteBox;
+import jdk.test.whitebox.WhiteBox;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -110,7 +110,6 @@ public class TestFramework {
                     "Trace",
                     "Print",
                     "Verify",
-                    "TLAB",
                     "UseNewCode",
                     "Xmn",
                     "Xms",

@@ -318,7 +318,7 @@ class Address {
   }
 
   bool xmmindex_needs_rex() const {
-    return _xmmindex->is_valid() && _xmmindex->encoding() >= 8;
+    return _xmmindex->is_valid() && ((_xmmindex->encoding() & 8) == 8);
   }
 
   relocInfo::relocType reloc() const { return _rspec.type(); }
@@ -678,7 +678,8 @@ private:
   bool _legacy_mode_vlbw;
   NOT_LP64(bool _is_managed;)
 
-  class InstructionAttr *_attributes;
+  InstructionAttr *_attributes;
+  void set_attributes(InstructionAttr* attributes);
 
   // 64bit prefixes
   void prefix(Register reg);
@@ -898,8 +899,6 @@ private:
   // belong in macro assembler but there is no need for both varieties to exist
 
   void init_attributes(void);
-
-  void set_attributes(InstructionAttr *attributes) { _attributes = attributes; }
   void clear_attributes(void) { _attributes = NULL; }
 
   void set_managed(void) { NOT_LP64(_is_managed = true;) }
@@ -1494,6 +1493,8 @@ private:
 
   void ktestql(KRegister dst, KRegister src);
 
+  void kshiftlbl(KRegister dst, KRegister src, int imm8);
+
   void movdl(XMMRegister dst, Register src);
   void movdl(Register dst, XMMRegister src);
   void movdl(XMMRegister dst, Address src);
@@ -1585,7 +1586,6 @@ private:
 
   // Move signed 32bit immediate to 64bit extending sign
   void movslq(Address  dst, int32_t imm64);
-  void movslq(Register dst, int32_t imm64);
 
   void movslq(Register dst, Address src);
   void movslq(Register dst, Register src);
@@ -1646,7 +1646,7 @@ private:
   void negq(Address dst);
 #endif
 
-  void nop(int i = 1);
+  void nop(uint i = 1);
 
   void notl(Register dst);
 
@@ -1728,6 +1728,8 @@ private:
 
   void evpcmpuw(KRegister kdst, XMMRegister nds, XMMRegister src, ComparisonPredicate vcc, int vector_len);
   void evpcmpuw(KRegister kdst, XMMRegister nds, Address src, ComparisonPredicate vcc, int vector_len);
+
+  void evpcmpuq(KRegister kdst, XMMRegister nds, XMMRegister src, ComparisonPredicate vcc, int vector_len);
 
   void pcmpeqw(XMMRegister dst, XMMRegister src);
   void vpcmpeqw(XMMRegister dst, XMMRegister nds, XMMRegister src, int vector_len);
@@ -2062,6 +2064,7 @@ private:
   void testb(Register dst, int imm8);
   void testb(Address dst, int imm8);
 
+  void testl(Address dst, int32_t imm32);
   void testl(Register dst, int32_t imm32);
   void testl(Register dst, Register src);
   void testl(Register dst, Address src);
@@ -2114,6 +2117,7 @@ private:
   void xorb(Address dst, Register src);
   void xorb(Register dst, Address src);
   void xorw(Register dst, Register src);
+  void xorw(Register dst, Address src);
 
   void xorq(Register dst, Address src);
   void xorq(Address dst, int32_t imm32);
@@ -2250,6 +2254,10 @@ private:
   void vpaddw(XMMRegister dst, XMMRegister nds, Address src, int vector_len);
   void vpaddd(XMMRegister dst, XMMRegister nds, Address src, int vector_len);
   void vpaddq(XMMRegister dst, XMMRegister nds, Address src, int vector_len);
+
+  // Leaf level assembler routines for masked operations.
+  void evpaddq(XMMRegister dst, KRegister mask, XMMRegister nds, XMMRegister src, bool merge, int vector_len);
+// void evpaddq(XMMRegister dst, KRegister mask, XMMRegister nds, Address src, bool merge, int vector_len);
 
   // Sub packed integers
   void psubb(XMMRegister dst, XMMRegister src);
@@ -2589,7 +2597,6 @@ public:
     if (_current_assembler != NULL) {
       _current_assembler->clear_attributes();
     }
-    _current_assembler = NULL;
   }
 
 private:

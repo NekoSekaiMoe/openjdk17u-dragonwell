@@ -54,7 +54,6 @@
 #include "jfr/support/jfrThreadExtension.hpp"
 #endif
 
-
 class SafeThreadsListPtr;
 class ThreadSafepointState;
 class ThreadsList;
@@ -503,9 +502,6 @@ class Thread: public ThreadShadow {
   }
 
  public:
-  // Used by fast lock support
-  virtual bool is_lock_owned(address adr) const;
-
   // Check if address is within the given range of this thread's
   // stack:  stack_base() > adr >= limit
   bool is_in_stack_range_incl(address adr, address limit) const {
@@ -670,6 +666,33 @@ protected:
     assert(_wx_state == expected, "wrong state");
   }
 #endif // __APPLE__ && AARCH64
+
+ private:
+  bool _in_asgct = false;
+ public:
+  bool in_asgct() const { return _in_asgct; }
+  void set_in_asgct(bool value) { _in_asgct = value; }
+  static bool current_in_asgct() {
+    Thread *cur = Thread::current_or_null_safe();
+    return cur != nullptr && cur->in_asgct();
+  }
+};
+
+class ThreadInAsgct {
+ private:
+  Thread* _thread;
+  bool _saved_in_asgct;
+ public:
+  ThreadInAsgct(Thread* thread) : _thread(thread) {
+    assert(thread != nullptr, "invariant");
+    // Allow AsyncGetCallTrace to be reentrant - save the previous state.
+    _saved_in_asgct = thread->in_asgct();
+    thread->set_in_asgct(true);
+  }
+  ~ThreadInAsgct() {
+    assert(_thread->in_asgct(), "invariant");
+    _thread->set_in_asgct(_saved_in_asgct);
+  }
 };
 
 // Inline implementation of Thread::current()
@@ -708,7 +731,6 @@ class JavaThread: public Thread {
   friend class ThreadsSMRSupport; // to access _threadObj for exiting_threads_oops_do
   friend class HandshakeState;
  private:
-  bool           _in_asgct;                      // Is set when this JavaThread is handling ASGCT call
   bool           _on_thread_list;                // Is set when this JavaThread is added to the Threads list
   OopHandle      _threadObj;                     // The Java level thread object
 
@@ -792,10 +814,6 @@ class JavaThread: public Thread {
   }
 
  private:
-  MonitorChunk* _monitor_chunks;              // Contains the off stack monitors
-                                              // allocated during deoptimization
-                                              // and by JNI_MonitorEnter/Exit
-
   enum SuspendFlags {
     // NOTE: avoid using the sign-bit as cc generates different test code
     //       when the sign-bit is used, and sometimes incorrectly - see CR 6398077
@@ -1224,7 +1242,7 @@ class JavaThread: public Thread {
            (_suspend_flags & (_obj_deopt JFR_ONLY(| _trace_flag))) != 0;
   }
 
-  // Fast-locking support
+  // Stack-locking support
   bool is_lock_owned(address adr) const;
 
   // Accessors for vframe array top
@@ -1412,13 +1430,7 @@ class JavaThread: public Thread {
   int depth_first_number() { return _depth_first_number; }
   void set_depth_first_number(int dfn) { _depth_first_number = dfn; }
 
- private:
-  void set_monitor_chunks(MonitorChunk* monitor_chunks) { _monitor_chunks = monitor_chunks; }
-
  public:
-  MonitorChunk* monitor_chunks() const           { return _monitor_chunks; }
-  void add_monitor_chunk(MonitorChunk* chunk);
-  void remove_monitor_chunk(MonitorChunk* chunk);
   bool in_deopt_handler() const                  { return _in_deopt_handler > 0; }
   void inc_in_deopt_handler()                    { _in_deopt_handler++; }
   void dec_in_deopt_handler() {
@@ -1478,6 +1490,10 @@ class JavaThread: public Thread {
   // Print stack trace in external format
   void print_stack_on(outputStream* st);
   void print_stack() { print_stack_on(tty); }
+  // Print current stack trace for checked JNI warnings and JNI fatal errors.
+  // This is the external format from above, but selecting the platform
+  // as applicable.
+  void print_jni_stack();
 
   // Print stack traces in various internal formats
   void trace_stack()                             PRODUCT_RETURN;
@@ -1669,9 +1685,14 @@ public:
 
   static void verify_cross_modify_fence_failure(JavaThread *thread) PRODUCT_RETURN;
 
-  // AsyncGetCallTrace support
-  inline bool in_asgct(void) {return _in_asgct;}
-  inline void set_in_asgct(bool value) {_in_asgct = value;}
+  // Helper function to start a VM-internal daemon thread.
+  // E.g. ServiceThread, NotificationThread, CompilerThread etc.
+  static void start_internal_daemon(JavaThread* current, JavaThread* target,
+                                    Handle thread_oop, ThreadPriority prio);
+
+  // Helper function to do vm_exit_on_initialization for osthread
+  // resource allocation failure.
+  static void vm_exit_on_osthread_failure(JavaThread* thread);
 };
 
 // Inline implementation of JavaThread::current
