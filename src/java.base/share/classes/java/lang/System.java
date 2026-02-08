@@ -2528,10 +2528,10 @@ public final class System {
             @Override
             public AbstractResourceContainer getInheritedResourceContainer(Thread thread) {
                 return thread.inheritedResourceContainer;
-=======
+            }
+
             public String getLoaderNameID(ClassLoader loader) {
                 return loader != null ? loader.nameAndId() : "null";
->>>>>>> std_bak
             }
         });
     }
