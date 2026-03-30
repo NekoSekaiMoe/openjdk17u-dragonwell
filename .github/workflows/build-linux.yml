@@ -65,7 +65,7 @@ on:
 jobs:
   build-linux:
     name: build
-    runs-on: ubuntu-22.04
+    runs-on: [ubuntu-22.04, ubuntu-22.04-arm]
 
     strategy:
       fail-fast: false
@@ -78,7 +78,7 @@ jobs:
 
     steps:
       - name: 'Checkout the JDK source'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 'Get the BootJDK'
         id: bootjdk
