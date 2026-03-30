@@ -7,13 +7,14 @@ on:
 jobs:
   amd:
     name: 'Build for x64'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
+    container: debian:sid
 
     steps:
       - name: 'Install dep'
         run: |
-          sudo apt-get update
-          sudo apt-get install build-essential dpkg-dev pkg-config -y
+          apt-get update
+          apt-get install build-essential dpkg-dev pkg-config -y
 
       - name: 'Checkout the scripts'
         uses: actions/checkout@v6
@@ -24,21 +25,22 @@ jobs:
 
       - name: 'Install dep stage 2'
         run: |
-          sudo apt build-dep . -y
+          apt build-dep . -y
 
       - name: 'Build'
         run: |
-          sudo dpkg-buildpackage -b -us -uc -d
+          DEB_BUILD_OPTIONS="parallel=2" dpkg-buildpackage -b -us -uc -d
 
   aarch:
     name: 'Build for arm64'
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04-arm
+    container: debian:sid
 
     steps:
       - name: 'Install dep'
         run: |
-          sudo apt-get update
-          sudo apt-get install build-essential dpkg-dev pkg-config -y
+          apt-get update
+          apt-get install build-essential dpkg-dev pkg-config -y
 
       - name: 'Checkout the scripts'
         uses: actions/checkout@v6
@@ -49,10 +51,8 @@ jobs:
 
       - name: 'Install dep stage 2'
         run: |
-          sudo apt build-dep . -y
+          apt build-dep . -y
 
       - name: 'Build'
         run: |
-          sudo dpkg-buildpackage -b -us -uc -d
-
-
+          DEB_BUILD_OPTIONS="parallel=4" dpkg-buildpackage -b -us -uc -d
