@@ -44,7 +44,7 @@ on:
 jobs:
   build-cross-compile:
     name: build
-    runs-on: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
