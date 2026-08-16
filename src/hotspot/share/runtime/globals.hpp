@@ -2107,8 +2107,30 @@ const intx ObjectAlignmentInBytes = 8;
              "Mark all threads after a safepoint, and clear on a modify "   \
              "fence. Add cleanliness checks.")                              \
                                                                             \
-  develop(bool, TraceOptimizedUpcallStubs, false,                              \
-                "Trace optimized upcall stub generation")                      \
+  develop(bool, TraceOptimizedUpcallStubs, false,                           \
+                "Trace optimized upcall stub generation")                   \
+                                                                            \
+  /* Wisp2 */                                                               \
+  product(bool, EnableCoroutine, false, EXPERIMENTAL,                       \
+          "Enable coroutine support")                                       \
+                                                                            \
+  product(uintx, DefaultCoroutineStackSize, 128*K,                          \
+          "Default size of stack that is associated with new coroutine")    \
+                                                                            \
+  product(bool, UseWispMonitor, false, EXPERIMENTAL,                        \
+          "yields to next coroutine when ObjectMonitor is contended")       \
+                                                                            \
+  product(bool, UseWisp2, false, EXPERIMENTAL,                              \
+          "Enable Wisp2")                                                   \
+                                                                            \
+  product(bool, Wisp2ThreadStop, false, EXPERIMENTAL,                       \
+          "ThreadDeath cannot be catched")                                  \
+                                                                            \
+  product(bool, PrintThreadCoroutineInfo, false, MANAGEABLE,                \
+          "print the park/unpark information for thread coroutine")         \
+                                                                            \
+  product(bool, VerboseWisp, false, DIAGNOSTIC,                             \
+          "Print verbose Wisp information")                                 \
                                                                             \
   product(uint, TrimNativeHeapInterval, 0,                                  \
           "Interval, in ms, at which the JVM will trim the native heap if " \
