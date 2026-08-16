@@ -120,7 +120,6 @@ private:
   JNIHandleBlock* _active_handles;
   GrowableArray<Metadata*>* _metadata_handles;
   JavaFrameAnchor _anchor;
-  MonitorChunk* _monitor_chunks;
   JavaThreadStatus _thread_status;
   int             _enable_steal_count;
   int             _java_call_counter;
@@ -240,7 +239,6 @@ public:
   static ByteSize last_handle_mark_offset()   { return byte_offset_of(Coroutine, _last_handle_mark); }
   static ByteSize active_handles_offset()     { return byte_offset_of(Coroutine, _active_handles); }
   static ByteSize metadata_handles_offset()   { return byte_offset_of(Coroutine, _metadata_handles); }
-  static ByteSize monitor_chunks_offset()     { return byte_offset_of(Coroutine, _monitor_chunks); }
   static ByteSize do_not_unlock_if_synchronized_offset()     { return byte_offset_of(Coroutine, _do_not_unlock_if_synchronized); }
   static ByteSize last_Java_sp_offset()       {
     return byte_offset_of(Coroutine, _anchor) + JavaFrameAnchor::last_Java_sp_offset();
@@ -472,10 +470,6 @@ public:
     CoroutineStack* stack = _coroutine->stack();
     if (stack->stack_base() > adr && adr >= (stack->stack_base() - stack->stack_size())) {
       return true;
-    }
-
-    for (MonitorChunk* chunk = monitor_chunks(); chunk != NULL; chunk = chunk->next()) {
-      if (chunk->contains(adr)) return true;
     }
     return false;
   }

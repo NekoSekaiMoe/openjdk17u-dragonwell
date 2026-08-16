@@ -1077,7 +1077,6 @@ class JavaThread: public Thread {
   void set_nmethod_traversals(long n)            { Atomic::release_store(&_nmethod_traversals, n); }
   long nmethod_traversals() const                { return Atomic::load_acquire(&_nmethod_traversals); }
 
-  static ByteSize monitor_chunks_offset()        { return byte_offset_of(JavaThread, _monitor_chunks); }
   static ByteSize current_coroutine_offset()     { return byte_offset_of(JavaThread, _current_coroutine); }
   void initialize_thread_coroutine();
 

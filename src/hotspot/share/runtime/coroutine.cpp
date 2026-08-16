@@ -117,7 +117,6 @@ Coroutine* Coroutine::create_thread_coroutine(JavaThread* thread, CoroutineStack
 #if defined(_WINDOWS)
   coro->_last_SEH = NULL;
 #endif
-  coro->_monitor_chunks = NULL;
   coro->_do_not_unlock_if_synchronized = false;
   coro->_wisp_thread  = UseWispMonitor ? new WispThread(coro) : NULL;
   if (UseWispMonitor) {
@@ -170,7 +169,6 @@ Coroutine* Coroutine::create_coroutine(JavaThread* thread, CoroutineStack* stack
 #if defined(_WINDOWS)
   coro->_last_SEH = NULL;
 #endif
-  coro->_monitor_chunks = NULL;
   coro->_do_not_unlock_if_synchronized = false;
   coro->_wisp_thread  = UseWispMonitor ? new WispThread(coro) : NULL;
   if (UseWispMonitor) {
@@ -316,10 +314,6 @@ void Coroutine::oops_do(OopClosure* f, CodeBlobClosure* cf) {
     DEBUG_CORO_ONLY(tty->print_cr("collecting handle area %08x", _handle_area));
     _handle_area->oops_do(f);
     _active_handles->oops_do(f);
-    // Traverse the monitor chunks
-    for (MonitorChunk* chunk = _monitor_chunks; chunk != NULL; chunk = chunk->next()) {
-      chunk->oops_do(f);
-    }
   }
   if (_wisp_task != NULL) {
     f->do_oop((oop*) &_wisp_engine);

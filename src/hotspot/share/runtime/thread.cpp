@@ -2061,13 +2061,6 @@ void JavaThread::oops_do_no_frames(OopClosure* f, CodeBlobClosure* cf) {
 
   DEBUG_ONLY(verify_frame_info();)
 
-  if (has_last_Java_frame()) {
-    // Traverse the monitor chunks
-    for (MonitorChunk* chunk = monitor_chunks(); chunk != NULL; chunk = chunk->next()) {
-      chunk->oops_do(f);
-    }
-  }
-
   if (EnableCoroutine) {
     CoroutineListLocker cll(this);
     Coroutine* current = _coroutine_list;
