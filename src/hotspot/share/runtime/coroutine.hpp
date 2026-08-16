@@ -601,11 +601,19 @@ public:
 //    v: Other frames running VM generated code (e.g. stubs, adapters, etc.)
 //    C: C/C++ frame
 #include CPU_HEADER(coroutine)
+#if defined(X86) || defined(AARCH64)
 #define WISP_THREAD_UPDATE get_thread(R_TH)
 #define WISP_CALLING_CONVENTION_V2J_UPDATE __ WISP_THREAD_UPDATE
 #define WISP_CALLING_CONVENTION_V2j_UPDATE __ WISP_THREAD_UPDATE
 #define WISP_COMPILER_RESTORE_FORCE_UPDATE __ WISP_THREAD_UPDATE
 #define WISP_V2v_UPDATE WISP_THREAD_UPDATE
+#else
+#define WISP_THREAD_UPDATE
+#define WISP_CALLING_CONVENTION_V2J_UPDATE
+#define WISP_CALLING_CONVENTION_V2j_UPDATE
+#define WISP_COMPILER_RESTORE_FORCE_UPDATE
+#define WISP_V2v_UPDATE
+#endif
 
 class WispPostStealHandleUpdateMark;
 
