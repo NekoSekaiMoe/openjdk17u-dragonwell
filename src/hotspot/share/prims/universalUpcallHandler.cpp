@@ -135,8 +135,6 @@ void ProgrammableUpcallHandler::on_exit(OptimizedEntryBlob::FrameData* context) 
 
   thread->dec_java_call_counter();
 
-  debug_only(thread->dec_java_call_counter());
-
   thread->frame_anchor()->copy(&context->jfa);
 
   // Old thread-local info. has been restored. We are now back in native code.
