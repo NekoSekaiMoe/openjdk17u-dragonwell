@@ -30,8 +30,7 @@ on:
     inputs:
       gcc-major-version:
         required: true
-        type: number
-        default: 16
+        type: string
       extra-conf-options:
         required: false
         type: string
