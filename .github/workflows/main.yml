@@ -224,7 +224,7 @@ jobs:
     needs: prepare
     uses: ./.github/workflows/build-cross-compile.yml
     with:
-      gcc-major-version: '10'
+      gcc-major-version: '16'
       configure-arguments: ${{ github.event.inputs.configure-arguments }}
       make-arguments: ${{ github.event.inputs.make-arguments }}
     if: needs.prepare.outputs.linux-cross-compile == 'true'
